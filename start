@@ -11,6 +11,10 @@ if [ -f "/etc/secrets/config.env" ]; then
 	export $(cut -d= -f1 "/etc/secrets/config.env")
 fi
 
+echo "${GH_TOKEN}" >~/.git-credentials
+git config --global credential.helper store
+
+
 cd_or_exit() {
 	cd "$1" || {
 		echo -e "Failed to cd to ${1}\nExiting..."
@@ -70,12 +74,7 @@ setup_repo() {
 install_reqs() {
 	echo "Installing reqs..."
 	cd_or_exit "$BOT_DIR"
-	pip -q install --no-cache-dir -r req*.txt
-}
-
-save_gh_token() {
-	echo "${GH_TOKEN}" >~/.git-credentials
-	git config --global credential.helper store
+	$(type -p uv) pip -q install --no-cache-dir -r req*.txt
 }
 
 run_extra_boot_scripts() {
@@ -100,7 +99,7 @@ start_nc_server() {
 	[[ -z "$port" ]] && return 0
 
 	handler="/tmp/http-handler"
-	cat >"$handler" <<-'EOF'
+	cat > "$handler" <<-'EOF'
 		#!/usr/bin/env sh
 		echo "HTTP/1.1 200 OK"
 		echo "Content-Type: text/plain"
@@ -127,18 +126,22 @@ run_bot_with_timeout() {
 	done
 }
 
-save_gh_token
-
-# No args provided: run everything
-# Default behaviour except when run from Dockerfile.webhosts
-if [[ $# -eq 0 ]]; then
+main(){
 	setup_repo
 	install_reqs
 	run_extra_boot_scripts
 	run_bot
-else
-	for arg in "$@"; do
-		case "$arg" in
+}
+
+# No args provided: run everything
+# Default behaviour except when run from Dockerfile.webhosts
+if [[ $# -eq 0 ]]; then
+    main
+    exit
+fi
+
+for arg in "$@"; do
+	case "$arg" in
 		--setup-repo)
 			setup_repo
 			;;
@@ -155,6 +158,5 @@ else
 			start_nc_server
 			run_bot_with_timeout
 			;;
-		esac
-	done
-fi
+	esac
+done
