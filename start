@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+set -e
+
 export PIP_ROOT_USER_ACTION=ignore PIP_DISABLE_PIP_VERSION_CHECK=1
 
 WORKDIR="/app"
@@ -14,16 +16,8 @@ fi
 echo "${GH_TOKEN}" >~/.git-credentials
 git config --global credential.helper store
 
-
-cd_or_exit() {
-	cd "$1" || {
-		echo -e "Failed to cd to ${1}\nExiting..."
-		exit 1
-	}
-}
-
 clone() {
-	cd_or_exit "$WORKDIR"
+	cd "$WORKDIR"
 
 	if [ -z "${UPSTREAM_REPO}" ]; then
 		echo "UPSTREAM_REPO var is not set or is empty"
@@ -32,16 +26,15 @@ clone() {
 
 	echo "Cloning UPSTREAM_REPO into ubot"
 
-	if ! git clone -q --depth=1 "${UPSTREAM_REPO}" "$BOT_DIR"; then
+	git clone -q --depth=1 "${UPSTREAM_REPO}" "$BOT_DIR" || {
 		echo "Failed to clone repo."
 		exit 1
-	fi
+	}
 
-	cd_or_exit "$WORKDIR"
 }
 
 pull() {
-	cd_or_exit "$BOT_DIR"
+	cd "$BOT_DIR"
 
 	echo "running git pull on main repo..."
 
@@ -49,57 +42,52 @@ pull() {
 	git pull --rebase
 
 	# Pull ext repo
-	[[ -d "app/modules" ]] &&
-		echo "running git pull on external repo..." &&
-		cd app/modules &&
+	if [[ -d "app/modules" ]]; then
+		echo "running git pull on external repo..."
+		cd app/modules
 		git pull --rebase
-
-	cd_or_exit "$WORKDIR"
+	fi
 }
 
 setup_repo() {
 	echo "Initiating repo setup..."
-
-	cd_or_exit "$WORKDIR"
 
 	if [[ -d "$BOT_DIR" ]]; then
 		pull
 	else
 		clone
 	fi
-
-	cd_or_exit "$WORKDIR"
 }
 
 install_reqs() {
 	echo "Installing reqs..."
-	cd_or_exit "$BOT_DIR"
+	cd "$BOT_DIR"
 	$(type -p uv) pip -q install --no-cache-dir -r req*.txt
 }
 
 run_extra_boot_scripts() {
-	cd_or_exit "$BOT_DIR"
+	local directory="${BOT_DIR}/scripts"
 
-	local directory="scripts"
+	[[ ! -d "$directory" ]] && return 1
 
-	if [[ -d "$directory" ]]; then
-		if [[ -n "$(ls -A "$directory")" ]]; then
-			for file in "$directory"/*; do
-				if [[ -f "$file" && -x "$file" ]]; then
-					echo "Executing $file"
-					"$file"
-				fi
-			done
-		fi
+	cd "$BOT_DIR"
+
+	if [[ -n "$(ls -A "$directory")" ]]; then
+		for file in "$directory"/*; do
+			[[ -f "$file" && -x "$file" ]] && {
+				echo "Executing $file"
+				"$file"
+			}
+		done
 	fi
 }
 
 start_nc_server() {
-	port="${WEB_PORT:-$PORT}"
+	local port="${WEB_PORT:-$PORT}"
 	[[ -z "$port" ]] && return 0
 
-	handler="/tmp/http-handler"
-	cat > "$handler" <<-'EOF'
+	local handler="/tmp/http-handler"
+	cat >"$handler" <<-'EOF'
 		#!/usr/bin/env sh
 		echo "HTTP/1.1 200 OK"
 		echo "Content-Type: text/plain"
@@ -114,11 +102,11 @@ start_nc_server() {
 
 run_bot() {
 	echo "starting bot..."
-	cd_or_exit "$BOT_DIR" && bash run
+	cd "$BOT_DIR" && bash run
 }
 
 run_bot_with_timeout() {
-	cd_or_exit "$WORKDIR"
+	cd "$WORKDIR"
 	while true; do
 		timeout --kill-after=2m 3h ./setup --run-bot
 		[[ "$?" -ne "124" ]] && break
@@ -126,7 +114,7 @@ run_bot_with_timeout() {
 	done
 }
 
-main(){
+main() {
 	setup_repo
 	install_reqs
 	run_extra_boot_scripts
@@ -136,27 +124,27 @@ main(){
 # No args provided: run everything
 # Default behaviour except when run from Dockerfile.webhosts
 if [[ $# -eq 0 ]]; then
-    main
-    exit
+	main
+	exit
 fi
 
 for arg in "$@"; do
 	case "$arg" in
-		--setup-repo)
-			setup_repo
-			;;
-		--install-reqs)
-			install_reqs
-			;;
-		--run-extra-boot-scripts)
-			run_extra_boot_scripts
-			;;
-		--run-bot)
-			run_bot
-			;;
-		--run)
-			start_nc_server
-			run_bot_with_timeout
-			;;
+	--setup-repo)
+		setup_repo
+		;;
+	--install-reqs)
+		install_reqs
+		;;
+	--run-extra-boot-scripts)
+		run_extra_boot_scripts
+		;;
+	--run-bot)
+		run_bot
+		;;
+	--run)
+		start_nc_server
+		run_bot_with_timeout
+		;;
 	esac
 done
