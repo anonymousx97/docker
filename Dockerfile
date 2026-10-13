@@ -84,5 +84,5 @@ COPY --from=builder /opt/venv /opt/venv
 
 EXPOSE 8080 22 8022
  
-
-CMD bash -c "$(curl -fsSL https://raw.githubusercontent.com/anonymousx97/Docker/main/start)"
+COPY start .
+CMD [ "./start" ]
