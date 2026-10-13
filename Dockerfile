@@ -75,7 +75,6 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     git config --global user.name "anonymousx97"
 
 
-COPY --from=node:22-bookworm-slim /usr/local/bin/node /usr/local/bin/node
 COPY --from=builder /bin/uv /bin/uv
 COPY --from=builder /usr/local/bin/ffmpeg /usr/local/bin/ffmpeg
 COPY --from=builder /usr/local/bin/ffprobe /usr/local/bin/ffprobe
