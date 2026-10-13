@@ -1,0 +1,20 @@
+# Version Control
+.git
+.github
+
+# Docker Configurations
+Dockerfile
+.dockerignore
+
+# Python Caches (if using Python based on reqs.txt)
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Local Environment & OS files
+.env
+.env.*
+.DS_Store
+Thumbs.db

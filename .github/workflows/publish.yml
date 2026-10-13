@@ -1,0 +1,157 @@
+name: Publish-Docker-Image-native
+
+on:
+  workflow_dispatch:
+    inputs:
+      no_cache:
+        description: "Force clean build (ignore cache)"
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      no_cache:
+        description: "Force clean build (ignore cache)"
+        type: boolean
+        default: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/${{ github.repository}}
+
+jobs:
+  build-images:
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            platform: linux/amd64
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            arch: arm64
+
+    runs-on: ${{ matrix.runner }}
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - name: Set lowercased image name
+        run: |
+          echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Login GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build image by digest
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          pull: true
+          no-cache: ${{ inputs.no_cache || false }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          provenance: false
+          cache-from: type=gha,scope=${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v6
+        with:
+          name: digests-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  create-manifest:
+    needs: build-images
+    runs-on: ubuntu-latest
+
+    permissions:
+      packages: write
+      contents: read
+      
+    steps:
+      - name: Checkout repository (for summary script)
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - name: Set lowercased image name
+        run: |
+          echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Login GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download digests
+        uses: actions/download-artifact@v8
+        with:
+          path: /tmp/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - name: Create multi architecture manifest
+        run: |
+          docker buildx imagetools create \
+            --tag ${{ env.IMAGE }}:main \
+            $(printf '${{ env.IMAGE }}@sha256:%s ' $(ls /tmp/digests))
+
+
+      - name: Generate Multi-Arch Disk & Wire Breakdown (Parallel)
+        run: |
+          echo "## 📱 Multi-Architecture Size Breakdown" >> $GITHUB_STEP_SUMMARY
+
+          # 1. ARM64 in background
+          (
+            docker pull --platform linux/arm64 "${{ env.IMAGE }}:main"
+            python3 .github/scripts/docker_layer_summary.py \
+              --image "${{ env.IMAGE }}:main" \
+              --platform "linux/arm64" \
+              --output /tmp/summary_arm64.md
+          ) &
+          PID_ARM=$!
+
+          # 2. AMD64 in background
+          (
+            docker pull --platform linux/amd64 "${{ env.IMAGE }}:main"
+            python3 .github/scripts/docker_layer_summary.py \
+              --image "${{ env.IMAGE }}:main" \
+              --platform "linux/amd64" \
+              --output /tmp/summary_amd64.md
+          ) &
+          PID_AMD=$!
+
+          # Wait for both background processes
+          wait $PID_ARM && wait $PID_AMD
+
+          # Append cleanly to summary
+          cat /tmp/summary_arm64.md >> $GITHUB_STEP_SUMMARY
+          cat /tmp/summary_amd64.md >> $GITHUB_STEP_SUMMARY
