@@ -1,0 +1,16 @@
+# .github/workflows/cron.yml
+name: Weekly-Security-Rebuild
+
+on:
+  schedule:
+    # Runs at 02:00 UTC every Sunday
+    - cron: '0 2 * * 0'
+  workflow_dispatch:
+
+jobs:
+  trigger-publish:
+    # Points to the publish workflow file in your repo
+    uses: ./.github/workflows/docker-publish-native.yml
+    with:
+      no_cache: true
+    secrets: inherit
