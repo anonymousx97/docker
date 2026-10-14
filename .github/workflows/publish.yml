@@ -156,36 +156,3 @@ jobs:
           cat /tmp/summary_arm64.md > $GITHUB_STEP_SUMMARY
           cat /tmp/summary_amd64.md >> $GITHUB_STEP_SUMMARY
 
-      - name: Delete untagged image versions
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          OWNER: ${{ github.repository_owner }}
-          PACKAGE_NAME: "docker"
-        run: |
-          echo "Fetching untagged image versions..."
-
-          # Fetch all untagged version IDs across all pages
-          mapfile -t VERSION_IDS < <(
-            gh api --paginate "/users/${OWNER}/packages/container/${PACKAGE_NAME}/versions?per_page=100" \
-              --jq '.[] | select((.metadata.container.tags // []) | length == 0) | .id'
-          )
-
-          TOTAL="${#VERSION_IDS[@]}"
-
-          if [[ "$TOTAL" -eq 0 || -z "${VERSION_IDS[0]:-}" ]]; then
-            echo "No untagged images found."
-            exit 0
-          fi
-
-          echo "Found $TOTAL untagged version(s). Deleting one-by-one..."
-
-          INDEX=1
-          for ID in "${VERSION_IDS[@]}"; do
-            echo "[$INDEX/$TOTAL] Deleting version ID: $ID"
-            gh api --silent -X DELETE "/users/packages/container/${PACKAGE_NAME}/versions/$ID" || {
-              echo "Warning: Could not delete $ID, skipping..."
-            }
-            ((INDEX++))
-          done
-
-          echo "Cleanup complete!"
