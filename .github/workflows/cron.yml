@@ -10,7 +10,7 @@ on:
 jobs:
   trigger-publish:
     # Points to the publish workflow file in your repo
-    uses: ./.github/workflows/docker-publish-native.yml
+    uses: ./.github/workflows/publish.yml
     with:
       no_cache: true
     secrets: inherit
