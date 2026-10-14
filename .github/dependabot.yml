@@ -1,9 +1,10 @@
 version: 2
 updates:
-  # Enable version updates for GitHub Actions
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly" # Options: "daily", "weekly", "monthly"
-    open-pull-requests-limit: 5
-    
+      interval: "weekly"
+    groups:
+      workflow-updates:
+        patterns:
+          - "*"
