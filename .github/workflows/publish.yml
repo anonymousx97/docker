@@ -182,7 +182,7 @@ jobs:
           INDEX=1
           for ID in "${VERSION_IDS[@]}"; do
             echo "[$INDEX/$TOTAL] Deleting version ID: $ID"
-            gh api --silent -X DELETE "/user/packages/container/${PACKAGE_NAME}/versions/$ID" || {
+            gh api --silent -X DELETE "/users/packages/container/${PACKAGE_NAME}/versions/$ID" || {
               echo "Warning: Could not delete $ID, skipping..."
             }
             ((INDEX++))
