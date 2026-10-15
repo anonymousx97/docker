@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import os
 import subprocess
 import sys
 
@@ -22,9 +23,7 @@ def get_active_shas(image: str) -> set[str]:
     return shas
 
 
-def get_obsolete_versions(owner: str, package: str, is_org: bool, keep_shas: set[str]) -> list[tuple[int, str]]:
-    base = "orgs" if is_org else "users"
-    endpoint = f"/{base}/{owner}/packages/container/{package}/versions"
+def get_obsolete_versions(endpoint: str, keep_shas: set[str]) -> list[tuple[int, str]]:
     obsolete: list[tuple[int, str]] = []
     page = 1
 
@@ -47,24 +46,17 @@ def get_obsolete_versions(owner: str, package: str, is_org: bool, keep_shas: set
     return obsolete
 
 
-def delete_versions(owner: str, package: str, is_org: bool, versions: list[tuple[int, str]]) -> None:
+def delete_versions(endpoint: str, versions: list[tuple[int, str]]) -> None:
     if not versions:
         print("registry clean: no obsolete images found")
         return
 
     print(f"deleting {len(versions)} obsolete version(s)...")
     deleted = 0
-    del_path = f"/orgs/{owner}" if is_org else "/user"
 
     for vid, sha in versions:
-        cmd = ["gh", "api", "--silent", "-X", "DELETE", f"{del_path}/packages/container/{package}/versions/{vid}"]
-        res = subprocess.run(cmd, capture_output=True)
-
-        if res.returncode != 0 and not is_org:
-            fallback = ["gh", "api", "--silent", "-X", "DELETE", f"/users/{owner}/packages/container/{package}/versions/{vid}"]
-            res = subprocess.run(fallback, capture_output=True)
-
-        if res.returncode == 0:
+        cmd = ["gh", "api", "--silent", "-X", "DELETE", f"{endpoint}/{vid}"]
+        if subprocess.run(cmd, capture_output=True).returncode == 0:
             deleted += 1
             print(f"deleted {sha[:19]} (id: {vid})")
         else:
@@ -85,11 +77,18 @@ def main() -> None:
         sys.exit("error: image must follow 'ghcr.io/<owner>/<package>:<tag>' format")
 
     owner, package = owner.lower(), package.lower()
-    is_org = subprocess.run(["gh", "api", f"/orgs/{owner}", "--silent"]).returncode == 0
+
+    # Route based on the context passed from GitHub Actions
+    is_org = os.environ.get("OWNER_TYPE", "").lower() == "organization"
+    endpoint = (
+        f"/orgs/{owner}/packages/container/{package}/versions"
+        if is_org
+        else f"/user/packages/container/{package}/versions"
+    )
 
     keep_shas = get_active_shas(image)
-    obsolete = get_obsolete_versions(owner, package, is_org, keep_shas)
-    delete_versions(owner, package, is_org, obsolete)
+    obsolete = get_obsolete_versions(endpoint, keep_shas)
+    delete_versions(endpoint, obsolete)
 
 
 if __name__ == "__main__":

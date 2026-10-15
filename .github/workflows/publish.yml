@@ -153,5 +153,6 @@ jobs:
       - name: Clean obsolete untagged images
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER_TYPE: ${{ github.event.repository.owner.type }}
         run: |
           python3 .github/scripts/clean_old_images.py --image "${{ env.IMAGE }}:main"
