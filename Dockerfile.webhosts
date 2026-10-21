@@ -4,4 +4,4 @@ RUN \
     --mount=type=secret,id=config_env,dst=/etc/secrets/config.env \
     ./start --setup-repo --install-reqs --run-extra-boot-scripts
 
-CMD [ "./setup", "--run-server" ]
+CMD [ "./start", "--run-server" ]
