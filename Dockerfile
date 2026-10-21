@@ -1,4 +1,4 @@
-FROM python:3.14-slim-trixie AS builder
+FROM python:3.15-slim-trixie AS builder
 
 ENV LANG=C.UTF-8 \
     DEBIAN_FRONTEND=noninteractive \
@@ -45,18 +45,23 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 ### Actual Image
 
 
-FROM python:3.14-slim-trixie
+FROM python:3.15-slim-trixie
 
 WORKDIR /app
 
 ENV DEBIAN_FRONTEND=noninteractive \
     LANG=C.UTF-8 \
-    PYTHONUNBUFFERED=1 \
-    VIRTUAL_ENV=/opt/venv \
+#
     PATH="/opt/venv/bin:$PATH" \
+    VIRTUAL_ENV=/opt/venv \
+#
+    PYTHONUNBUFFERED=1 \
+    PYTHON_LAZY_IMPORTS="all" \
+#
     PIP_NO_CACHE_DIR=1 \
     PIP_ROOT_USER_ACTION=ignore \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
+#
     UV_NO_CACHE=1 \
     UV_LINK_MODE=copy \
     UV_COMPILE_BYTECODE=1
@@ -84,4 +89,5 @@ COPY --from=builder /opt/venv /opt/venv
 EXPOSE 8080 22 8022
  
 COPY start .
+
 CMD [ "./start" ]
