@@ -11,7 +11,7 @@ numpy>=1.23.2
 pillow>=9.0.1
 psutil>=5.7.3
 python-dotenv>=0.21.0
-pytgcrypto @ git+https://github.com/anonymousx97/pyrogram-tgcrypto
+rtgcrypto
 pytz>=2020.4
 requests>=2.25.0
 setuptools>=60.0.4
