@@ -72,7 +72,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     # basic packages
     apt-get update && \
     apt-get install -y --no-install-recommends \
-        curl git nano wget unzip fastfetch tar xz-utils && \
+        bash-builtins curl git nano wget unzip fastfetch tar xz-utils && \
     # cleanup
     rm -rf /usr/share/doc/* /usr/share/man/* /usr/share/locale/* /usr/share/info/* && \
     # git defaults

@@ -1,11 +1,7 @@
 FROM ghcr.io/anonymousx97/docker:main
 
-COPY start setup
-
 RUN \
     --mount=type=secret,id=config_env,dst=/etc/secrets/config.env \
-    apt-get update -y && apt-get install -y busybox && \
-    chmod +x setup && \
-    ./setup --setup-repo --install-reqs --run-extra-boot-scripts
+    ./start --setup-repo --install-reqs --run-extra-boot-scripts
 
-CMD ./setup --run
+CMD [ "./setup", "--run-server" ]

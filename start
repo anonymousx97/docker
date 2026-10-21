@@ -2,58 +2,47 @@
 
 set -e
 
-export PIP_ROOT_USER_ACTION=ignore PIP_DISABLE_PIP_VERSION_CHECK=1
-
 WORKDIR="/app"
 BOT_DIR="${WORKDIR}/ubot"
+VENV_SOURCE="${VIRTUAL_ENV}/bin/activate"
 
-if [ -f "/etc/secrets/config.env" ]; then
-	echo "exporting secrects..."
-	. "/etc/secrets/config.env"
-	export $(cut -d= -f1 "/etc/secrets/config.env")
-fi
+init() {
+	[[ -f "$VENV_SOURCE" ]] && . "$VENV_SOURCE"
 
-echo "${GH_TOKEN}" >~/.git-credentials
-git config --global credential.helper store
+	if [[ -f "/etc/secrets/config.env" ]]; then
+		echo "exporting secrets..."
+		set -a && . "/etc/secrets/config.env" && set +a
+	fi
+
+	if [[ -n "${GH_TOKEN}" ]]; then
+		echo "https://${GH_TOKEN}:x-oauth-basic@github.com" >~/.git-credentials
+		git config --global credential.helper store
+	fi
+
+}
 
 clone() {
-	cd "$WORKDIR"
 
-	if [ -z "${UPSTREAM_REPO}" ]; then
+	if [[ -z "${UPSTREAM_REPO}" ]]; then
 		echo "UPSTREAM_REPO var is not set or is empty"
 		exit 1
 	fi
 
-	echo "Cloning UPSTREAM_REPO into ubot"
+	echo "Cloning UPSTREAM_REPO into ${BOT_DIR}"
 
 	git clone -q --depth=1 "${UPSTREAM_REPO}" "$BOT_DIR" || {
 		echo "Failed to clone repo."
 		exit 1
 	}
-
-}
-
-pull() {
-	cd "$BOT_DIR"
-
-	echo "running git pull on main repo..."
-
-	# Pull Main Repo
-	git pull --rebase
-
-	# Pull ext repo
-	if [[ -d "app/modules" ]]; then
-		echo "running git pull on external repo..."
-		cd app/modules
-		git pull --rebase
-	fi
 }
 
 setup_repo() {
 	echo "Initiating repo setup..."
 
 	if [[ -d "$BOT_DIR" ]]; then
-		pull
+		echo "running git pull on main repo..."
+		git -C "$BOT_DIR" fetch --depth=1 origin
+		git -C "$BOT_DIR" reset --hard FETCH_HEAD
 	else
 		clone
 	fi
@@ -61,56 +50,68 @@ setup_repo() {
 
 install_reqs() {
 	echo "Installing reqs..."
-	cd "$BOT_DIR"
-	$(type -p uv) pip -q install --no-cache-dir -r req*.txt
+	$(type -p uv) pip -q install --no-cache-dir -r "$BOT_DIR"/req*.txt
 }
 
 run_extra_boot_scripts() {
-	local directory="${BOT_DIR}/scripts"
+	local directory file
 
-	[[ ! -d "$directory" ]] && return 1
+	directory="${BOT_DIR}/scripts"
+
+	[[ ! -d "$directory" ]] && return 0
 
 	cd "$BOT_DIR"
 
-	if [[ -n "$(ls -A "$directory")" ]]; then
-		for file in "$directory"/*; do
-			[[ -f "$file" && -x "$file" ]] && {
-				echo "Executing $file"
-				"$file"
-			}
-		done
-	fi
+	shopt -s nullglob
+
+	for file in "$directory"/*; do
+		if [[ -f "$file" && -x "$file" ]]; then
+			echo "Executing $file"
+			"$file"
+		fi
+	done
+
+	shopt -u nullglob
+
 }
 
-start_nc_server() {
-	local port="${WEB_PORT:-$PORT}"
+serve() {
+	# health check bash server
+	local port fd
+
+	port="${WEB_PORT:-$PORT}"
 	[[ -z "$port" ]] && return 0
 
-	local handler="/tmp/http-handler"
-	cat >"$handler" <<-'EOF'
-		#!/usr/bin/env sh
-		echo "HTTP/1.1 200 OK"
-		echo "Content-Type: text/plain"
-		echo
-		echo "web server running..."
-	EOF
-	chmod +x "$handler"
+	enable -f /usr/lib/bash/accept accept 2>/dev/null || {
+		echo "Error: 'accept' builtin unavailable" >&2
+		exit 1
+	}
 
-	busybox nc -ll -p "$port" -e "$handler" &
-	echo "web server started at port: ${port}..."
+	echo "Health check listening on 0.0.0.0:${port}..."
+
+	while accept -b 0.0.0.0 -v fd "$port"; do
+		read -r -N 4096 -t 0.05 -u "$fd" _ 2>/dev/null
+		printf "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK" \
+			1>&"$fd" 2>/dev/null
+		exec {fd}>&-
+	done &
 }
 
 run_bot() {
 	echo "starting bot..."
-	cd "$BOT_DIR" && bash run
+	cd "$BOT_DIR"
+	bash run
 }
 
-run_bot_with_timeout() {
+run_server() {
+	serve
+
 	cd "$WORKDIR"
 	while true; do
-		timeout --kill-after=2m 3h ./setup --run-bot
-		[[ "$?" -ne "124" ]] && break
-		echo "Started automatic restart..."
+		local status=0
+		timeout --kill-after=2m 3h "$0" --run-bot || status=$?
+		if ((status != 124)); then break; fi
+		echo "[3-HOUR] automatic restart..."
 	done
 }
 
@@ -121,30 +122,25 @@ main() {
 	run_bot
 }
 
-# No args provided: run everything
-# Default behaviour except when run from Dockerfile.webhosts
-if [[ $# -eq 0 ]]; then
-	main
-	exit
-fi
+parse-args() {
 
-for arg in "$@"; do
-	case "$arg" in
-	--setup-repo)
-		setup_repo
-		;;
-	--install-reqs)
-		install_reqs
-		;;
-	--run-extra-boot-scripts)
-		run_extra_boot_scripts
-		;;
-	--run-bot)
-		run_bot
-		;;
-	--run)
-		start_nc_server
-		run_bot_with_timeout
-		;;
-	esac
-done
+	for arg in "$@"; do
+		case "$arg" in
+		--setup-repo) setup_repo ;;
+		--install-reqs) install_reqs ;;
+		--run-extra-boot-scripts) run_extra_boot_scripts ;;
+		--run-bot) run_bot ;;
+		--run-server) run_server ;;
+		esac
+	done
+
+}
+
+# Set env
+init
+
+if (($# == 0)); then # No args provided: run everything
+	main
+else
+	parse-args "$@"
+fi
