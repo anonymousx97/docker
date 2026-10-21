@@ -16,7 +16,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         build-essential \
         python3-dev \
         zlib1g-dev \
-        curl \
+        curl git \
         xz-utils
 
 
